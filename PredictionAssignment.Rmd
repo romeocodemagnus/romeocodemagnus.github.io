@@ -1,0 +1,108 @@
+---
+title: "PredictionAssignment"
+author: "romeocodemagnus"
+date: "25 July 2015"
+output: html_document
+---
+
+##Executive Summary
+This analysis uses data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants who were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal is to predict the manner in which the participants did the exercise. This is the "classe" variable in the training set. This is a Prediction Assignment for the Machine Learning Course by Coursera.
+
+##Load necessary libraries, load data
+```{r}
+library(caret)
+library(randomForest) 
+library(rpart) 
+library(gbm)
+library(rpart.plot)
+library(data.table)
+
+set.seed(112233)
+
+#define a function that downloads then reads into the session https url link, replacing all missing with "NA"
+read.url <- function(url, ...){
+     tmpFile <- tempfile()
+     download.file(url, destfile = tmpFile, method = "curl")
+     url.data <- read.csv(tmpFile, na.strings=c("NA","#DIV/0!", ""))
+     return(url.data)
+}
+
+training <- read.url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+dim(training)
+
+testing <- read.url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+dim(testing)
+
+```
+
+##Clean Data
+
+```{r}
+#remove all columns having values that are all NA
+training<-training[,colSums(is.na(training)) == 0]
+testing <-testing[,colSums(is.na(testing)) == 0]
+
+#remove the first 7 columns that are unimportant to the prediction process
+training   <-training[,-c(1:7)]
+testing <-testing[,-c(1:7)]
+
+#review effect of pruning
+dim(training)
+dim(testing)
+```
+
+##Partitioning Data
+Data has already been partitioned to Training and Testing. The steps below will further split the training data to
+the trainSubset and crossValidationSubset
+
+```{r}
+inTrain <- createDataPartition(y=training$classe, p=0.7, list=FALSE)
+trainSubset <- training[inTrain,]
+crossValidationSubset <- training[-inTrain,]
+```
+
+##Train 3 Models then use to Validate
+I will use Decision Tree (rpart), Random Forest (rf), and General Boosted Model (gbm)
+
+```{r}
+#train using 3 models
+modelRpart <- train(classe ~ ., data=trainSubset, method="rpart")
+modelRf <- train(classe ~ ., method = 'rf', data = trainSubset, prox=TRUE, trControl = trainControl(method = "cv", number = 4, allowParallel = TRUE))
+modelGbm <- train(classe ~ ., data=trainSubset, method="gbm")
+
+#predict
+predictRpart <- predict(modelRpart, crossValidationSubset)
+predictRf <- predict(modelRf, crossValidationSubset)
+predictGbm <- predict(modelGbm, crossValidationSubset)
+
+#confusion matrix
+decisionTree <- confusionMatrix(predictRpart, crossValidationSubset$classe)
+#decisionTree
+
+randomForest <- confusionMatrix(predictRf, crossValidationSubset$classe)
+#randomForest
+
+generalBoostedModel <- confusionMatrix(predictGbm, crossValidationSubset$classe)
+#generalBoostedModel
+```
+
+##Accuracy and Out-of-sample Error
+Below is the comparison and the out of sample error:
+
+```{r}
+report <- data.table(Type = c("Accuracy", "Out-of-sample Error"),
+                      DecisionTree = c(decisionTree$overall[1], 1 - decisionTree$overall[1]),
+                      RandomForest = c(randomForest$overall[1], 1 - randomForest$overall[1]),
+                      GeneralBoostedModel = c(generalBoostedModel$overall[1], 1 - generalBoostedModel$overall[1]))
+report
+
+```
+
+##Test Data Prediction
+From the above, the out-of-sample error of random forest is smallest and accuracy is highest. So
+I use this to predict on the Test Data.
+```{r}
+# predict the classe in Testing Data
+predictRfTesting <- predict(modelRf, testing)
+predictRfTesting
+```
